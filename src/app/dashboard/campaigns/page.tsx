@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import Link from "next/link";
+import { DeleteCampaignButton } from "@/components/delete-campaign-button";
 
 export default async function CampaignsPage() {
   const supabase = await createClient();
@@ -37,7 +38,7 @@ export default async function CampaignsPage() {
               className="bg-gray-900 rounded-xl border border-gray-800 p-5"
             >
               <div className="flex items-center justify-between">
-                <div>
+                <div className="flex-1">
                   <h3 className="text-white font-medium">{campaign.name}</h3>
                   <p className="text-gray-500 text-sm mt-1">
                     {campaign.value_prop?.slice(0, 80)}
@@ -49,15 +50,18 @@ export default async function CampaignsPage() {
                     </p>
                   )}
                 </div>
-                <span
-                  className={`px-2 py-0.5 text-xs rounded-full ${
-                    campaign.status === "active"
-                      ? "bg-green-900/30 text-green-400"
-                      : "bg-gray-800 text-gray-500"
-                  }`}
-                >
-                  {campaign.status}
-                </span>
+                <div className="flex items-center gap-3">
+                  <span
+                    className={`px-2 py-0.5 text-xs rounded-full ${
+                      campaign.status === "active"
+                        ? "bg-green-900/30 text-green-400"
+                        : "bg-gray-800 text-gray-500"
+                    }`}
+                  >
+                    {campaign.status}
+                  </span>
+                  <DeleteCampaignButton campaignId={campaign.id} />
+                </div>
               </div>
             </div>
           ))}
