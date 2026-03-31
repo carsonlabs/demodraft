@@ -145,7 +145,7 @@ export function DraftCard({ draft }: DraftCardProps) {
                 {copiedField === "body" ? "Copied!" : "Copy"}
               </button>
             </div>
-            <div className="bg-gray-800 rounded-lg p-3 text-sm text-gray-300 whitespace-pre-wrap max-h-64 overflow-y-auto">
+            <div className="bg-gray-800 rounded-lg p-3 text-sm text-gray-300 whitespace-pre-wrap break-words max-h-80 overflow-y-auto">
               {draft.email_body}
             </div>
           </div>

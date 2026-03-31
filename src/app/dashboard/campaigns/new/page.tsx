@@ -4,10 +4,14 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
+type Step = "url" | "refine" | "creating";
+
 export default function NewCampaignPage() {
   const router = useRouter();
   const supabase = createClient();
-  const [saving, setSaving] = useState(false);
+  const [step, setStep] = useState<Step>("url");
+  const [url, setUrl] = useState("");
+  const [analyzing, setAnalyzing] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
     name: "",
@@ -20,17 +24,49 @@ export default function NewCampaignPage() {
   const update = (field: string, value: string) =>
     setForm((prev) => ({ ...prev, [field]: value }));
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.name || !form.valueProp || !form.icpDescription) return;
+  async function handleAnalyze() {
+    if (!url.trim()) return;
+    setAnalyzing(true);
+    setError("");
 
-    setSaving(true);
+    try {
+      const domain = url.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
+      const res = await fetch("/api/onboard/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: domain }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setError(data.error ?? "Could not analyze that URL");
+        setAnalyzing(false);
+        return;
+      }
+
+      setForm({
+        name: data.productName ?? "",
+        valueProp: data.valueProp ?? "",
+        website: data.website ?? domain,
+        icpDescription: data.icpDescription ?? "",
+        icpIndustry: data.icpIndustry ?? "",
+      });
+      setStep("refine");
+    } catch {
+      setError("Something went wrong. Try again.");
+    }
+    setAnalyzing(false);
+  }
+
+  async function handleCreate() {
+    if (!form.name || !form.valueProp || !form.icpDescription) return;
+    setStep("creating");
     setError("");
 
     const { data: { user } } = await supabase.auth.getUser();
     if (!user) return;
 
-    // Create the campaign
     const { data: campaign, error: campError } = await supabase
       .from("campaigns")
       .insert({
@@ -50,27 +86,23 @@ export default function NewCampaignPage() {
 
     if (campError || !campaign) {
       setError("Failed to create campaign. Please try again.");
-      setSaving(false);
+      setStep("refine");
       return;
     }
 
-    // Trigger first batch — source prospects + scan immediately
+    // Trigger first batch
     try {
-      const res = await fetch("/api/pipeline/first-run", {
+      await fetch("/api/pipeline/first-run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ campaignId: campaign.id }),
       });
-
-      if (!res.ok) {
-        console.error("First run failed, but campaign created");
-      }
     } catch {
-      // Campaign still created, pipeline will catch up on next cron
+      // Campaign still created
     }
 
     router.push("/dashboard?setup=complete");
-  };
+  }
 
   const industries = [
     "E-commerce / DTC",
@@ -85,14 +117,86 @@ export default function NewCampaignPage() {
     "Other",
   ];
 
+  // Step 1: Paste your URL
+  if (step === "url") {
+    return (
+      <div className="max-w-xl mx-auto py-12">
+        <div className="text-center mb-10">
+          <h1 className="text-3xl font-bold text-white mb-3">What&apos;s your website?</h1>
+          <p className="text-gray-400">
+            Paste your URL and we&apos;ll figure out the rest.
+          </p>
+        </div>
+
+        <div className="bg-gray-900 rounded-xl border border-gray-800 p-6">
+          <div className="flex gap-3">
+            <input
+              type="text"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleAnalyze()}
+              placeholder="yourcompany.com"
+              disabled={analyzing}
+              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-3 text-white text-lg placeholder-gray-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none disabled:opacity-50"
+              autoFocus
+            />
+            <button
+              onClick={handleAnalyze}
+              disabled={analyzing || !url.trim()}
+              className="px-6 py-3 bg-indigo-600 text-white font-medium rounded-lg hover:bg-indigo-500 transition-colors disabled:opacity-40 whitespace-nowrap"
+            >
+              {analyzing ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  Analyzing...
+                </span>
+              ) : (
+                "Analyze"
+              )}
+            </button>
+          </div>
+
+          {error && <p className="text-red-400 text-sm mt-3">{error}</p>}
+
+          <p className="text-gray-600 text-xs mt-4 text-center">
+            We&apos;ll scrape your site and auto-fill your product info + ideal customer profile.
+          </p>
+        </div>
+
+        <div className="mt-8 text-center">
+          <button
+            onClick={() => setStep("refine")}
+            className="text-gray-600 text-sm hover:text-gray-400 transition-colors"
+          >
+            Skip — I&apos;ll fill it in manually
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Step 3: Creating
+  if (step === "creating") {
+    return (
+      <div className="max-w-xl mx-auto py-20 text-center">
+        <div className="w-16 h-16 border-4 border-indigo-600 border-t-transparent rounded-full animate-spin mx-auto mb-6" />
+        <h2 className="text-2xl font-bold text-white mb-3">Setting up your outreach engine</h2>
+        <p className="text-gray-400">
+          Finding prospects that match your ICP and generating your first demos...
+        </p>
+      </div>
+    );
+  }
+
+  // Step 2: Refine auto-filled data
   return (
     <div className="max-w-xl mx-auto">
-      <h1 className="text-2xl font-bold text-white mb-2">Set up your outreach</h1>
+      <h1 className="text-2xl font-bold text-white mb-2">Review & refine</h1>
       <p className="text-gray-400 text-sm mb-8">
-        Tell us what you sell and who you sell to. We&apos;ll find prospects and build custom demos automatically.
+        We analyzed your site and pre-filled everything. Tweak anything that&apos;s off.
       </p>
 
-      <form onSubmit={handleSubmit} className="space-y-6">
+      <div className="space-y-6">
         {/* Product */}
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-6 space-y-4">
           <h2 className="text-white font-semibold">Your product</h2>
@@ -110,7 +214,7 @@ export default function NewCampaignPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">
-              What does it do? <span className="text-gray-600">(one line)</span>
+              What does it do?
             </label>
             <input
               type="text"
@@ -123,14 +227,14 @@ export default function NewCampaignPage() {
 
           <div>
             <label className="block text-sm font-medium text-gray-400 mb-1">
-              Your website <span className="text-gray-600">(optional)</span>
+              Website
             </label>
             <input
               type="text"
               value={form.website}
               onChange={(e) => update("website", e.target.value)}
-              placeholder="e.g., linkrescue.io"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
+              placeholder="yourcompany.com"
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-gray-500 placeholder-gray-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none"
             />
           </div>
         </div>
@@ -139,7 +243,7 @@ export default function NewCampaignPage() {
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-6 space-y-4">
           <h2 className="text-white font-semibold">Your ideal customer</h2>
           <p className="text-gray-500 text-sm">
-            Describe who you sell to. We&apos;ll use this to find matching companies automatically.
+            We&apos;ll use this to automatically find matching companies every day.
           </p>
 
           <div>
@@ -149,7 +253,6 @@ export default function NewCampaignPage() {
             <textarea
               value={form.icpDescription}
               onChange={(e) => update("icpDescription", e.target.value)}
-              placeholder="e.g., Food bloggers with affiliate links who get 10k+ monthly visitors. They have lots of outbound links but probably don't check if those links are broken."
               rows={3}
               className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-600 focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500 outline-none resize-none"
             />
@@ -170,22 +273,20 @@ export default function NewCampaignPage() {
           </div>
         </div>
 
-        {error && (
-          <p className="text-red-400 text-sm">{error}</p>
-        )}
+        {error && <p className="text-red-400 text-sm">{error}</p>}
 
         <button
-          type="submit"
-          disabled={saving || !form.name || !form.valueProp || !form.icpDescription}
+          onClick={handleCreate}
+          disabled={!form.name || !form.valueProp || !form.icpDescription}
           className="w-full py-3 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-500 transition-colors disabled:opacity-40 disabled:cursor-not-allowed text-lg"
         >
-          {saving ? "Finding your first prospects..." : "Start finding leads"}
+          Start finding leads
         </button>
 
         <p className="text-gray-600 text-xs text-center">
-          We&apos;ll immediately find 10 matching prospects and generate your first batch of demos.
+          We&apos;ll immediately find matching prospects and generate your first batch of demos.
         </p>
-      </form>
+      </div>
     </div>
   );
 }
