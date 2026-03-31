@@ -23,26 +23,9 @@ interface ScrapedSite {
   techSignals: string[];
 }
 
-/**
- * Scrape a prospect's website for LLM analysis.
- */
-async function scrapeSite(domain: string): Promise<ScrapedSite> {
-  const url = domain.startsWith("http") ? domain : `https://${domain}`;
-
-  const res = await fetch(url, {
-    signal: AbortSignal.timeout(10_000),
-    headers: { "User-Agent": BROWSER_UA },
-    redirect: "follow",
-  });
-
-  if (!res.ok) {
-    throw new Error(`Failed to fetch ${url}: ${res.status}`);
-  }
-
-  const html = await res.text();
+function parseSiteHtml(html: string, url: string, domain: string): ScrapedSite {
   const $ = cheerio.load(html);
 
-  // Extract key content
   const title = $("title").text().trim();
   const metaDescription = $('meta[name="description"]').attr("content")?.trim() ?? "";
 
@@ -52,11 +35,9 @@ async function scrapeSite(domain: string): Promise<ScrapedSite> {
     if (text && headings.length < 20) headings.push(text);
   });
 
-  // Get body text (strip nav, footer, script, style)
   $("nav, footer, script, style, noscript, iframe").remove();
   const bodyText = $("body").text().replace(/\s+/g, " ").trim().slice(0, 5000);
 
-  // Outbound links
   const outboundLinks: string[] = [];
   const baseDomain = domain.replace(/^www\./, "");
   $("a[href]").each((_, el) => {
@@ -66,7 +47,6 @@ async function scrapeSite(domain: string): Promise<ScrapedSite> {
     }
   });
 
-  // Tech signals
   const techSignals: string[] = [];
   const htmlLower = html.toLowerCase();
   if (htmlLower.includes("shopify")) techSignals.push("Shopify");
@@ -82,6 +62,39 @@ async function scrapeSite(domain: string): Promise<ScrapedSite> {
     techSignals.push("Google Analytics");
 
   return { url, title, metaDescription, headings, bodyText, outboundLinks, techSignals };
+}
+
+/**
+ * Scrape a prospect's website for LLM analysis.
+ */
+async function scrapeSite(domain: string): Promise<ScrapedSite> {
+  const url = domain.startsWith("http") ? domain : `https://${domain}`;
+
+  const res = await fetch(url, {
+    signal: AbortSignal.timeout(10_000),
+    headers: { "User-Agent": BROWSER_UA },
+    redirect: "follow",
+  });
+
+  if (!res.ok) {
+    if (!domain.startsWith("www.")) {
+      const wwwUrl = `https://www.${domain}`;
+      const retry = await fetch(wwwUrl, {
+        signal: AbortSignal.timeout(10_000),
+        headers: { "User-Agent": BROWSER_UA },
+        redirect: "follow",
+      }).catch(() => null);
+
+      if (retry?.ok) {
+        const html = await retry.text();
+        return parseSiteHtml(html, wwwUrl, domain);
+      }
+    }
+    throw new Error(`Failed to fetch ${url}: ${res.status}`);
+  }
+
+  const html = await res.text();
+  return parseSiteHtml(html, url, domain);
 }
 
 const DEFAULT_ANALYSIS_PROMPT = `You are a sales analyst. Given a prospect's website content and a product/service description, generate a structured analysis showing exactly how this product solves the prospect's specific problems.
@@ -152,7 +165,11 @@ export async function scanProspect(
 Generate the analysis JSON. Be specific to THIS prospect's actual content.`;
 
   // 3. Call Claude
-  const anthropic = new Anthropic();
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw new Error("ANTHROPIC_API_KEY not configured");
+  }
+  const anthropic = new Anthropic({ apiKey });
   const message = await anthropic.messages.create({
     model: "claude-sonnet-4-20250514",
     max_tokens: 2000,
