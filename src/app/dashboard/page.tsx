@@ -2,11 +2,25 @@ import { createClient } from "@/lib/supabase/server";
 import { DraftCard } from "@/components/draft-card";
 import Link from "next/link";
 
-export default async function DashboardPage() {
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ setup?: string }>;
+}) {
   const supabase = await createClient();
   const { data: { user } } = await supabase.auth.getUser();
+  const params = await searchParams;
 
   if (!user) return null;
+
+  // Check if user has any campaigns
+  const { count: campaignCount } = await supabase
+    .from("campaigns")
+    .select("*", { count: "exact", head: true })
+    .eq("user_id", user.id);
+
+  const hasCampaigns = (campaignCount ?? 0) > 0;
+  const justSetUp = params.setup === "complete";
 
   // Get today's drafts
   const today = new Date().toISOString().slice(0, 10);
@@ -46,8 +60,44 @@ export default async function DashboardPage() {
   const used = todayCount ?? 0;
   const limit = profile?.daily_limit ?? 0;
 
+  // No campaigns yet — send to onboarding
+  if (!hasCampaigns) {
+    return (
+      <div className="max-w-lg mx-auto text-center py-20">
+        <div className="w-20 h-20 rounded-full bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center mx-auto mb-6">
+          <svg className="w-10 h-10 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
+          </svg>
+        </div>
+        <h1 className="text-3xl font-bold text-white mb-3">Welcome to DemoDraft</h1>
+        <p className="text-gray-400 text-lg mb-8">
+          Tell us what you sell and who your ideal customer is.
+          <br />
+          We&apos;ll find prospects and build custom demos — automatically.
+        </p>
+        <Link
+          href="/dashboard/campaigns/new"
+          className="inline-flex px-8 py-3.5 bg-indigo-600 text-white font-medium rounded-xl hover:bg-indigo-500 transition-colors text-lg"
+        >
+          Get started
+        </Link>
+      </div>
+    );
+  }
+
   return (
     <div>
+      {/* Just set up notification */}
+      {justSetUp && (
+        <div className="bg-indigo-600/10 border border-indigo-500/20 rounded-xl p-5 mb-8">
+          <h3 className="text-indigo-300 font-semibold mb-1">Your outreach engine is running</h3>
+          <p className="text-gray-400 text-sm">
+            We&apos;re finding prospects that match your ICP and building personalized demos.
+            Your first drafts will appear below shortly. The pipeline also runs automatically every morning.
+          </p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between mb-8">
         <div>
@@ -79,28 +129,14 @@ export default async function DashboardPage() {
         <div className="bg-gray-900 rounded-xl border border-gray-800 p-12 text-center mb-12">
           <div className="w-16 h-16 rounded-full bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center mx-auto mb-4">
             <svg className="w-8 h-8 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
           </div>
           <h3 className="text-lg font-medium text-white mb-2">No drafts yet today</h3>
           <p className="text-gray-400 text-sm max-w-md mx-auto">
-            Your pipeline runs every morning at 8 AM. Once you&apos;ve set up a campaign and
-            uploaded prospects, your personalized drafts will appear here — ready to copy and send.
+            Your pipeline runs every morning at 8 AM. It automatically finds new prospects
+            matching your ICP, scans their sites, and generates personalized demos — all while you sleep.
           </p>
-          <div className="flex items-center justify-center gap-3 mt-6">
-            <Link
-              href="/dashboard/campaigns/new"
-              className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-500 transition-colors"
-            >
-              Create a campaign
-            </Link>
-            <Link
-              href="/dashboard/prospects"
-              className="px-4 py-2 bg-gray-800 text-white text-sm font-medium rounded-lg hover:bg-gray-700 transition-colors"
-            >
-              Upload prospects
-            </Link>
-          </div>
         </div>
       )}
 

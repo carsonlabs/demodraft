@@ -2,14 +2,18 @@
  * POST /api/cron/morning
  *
  * Daily pipeline trigger. Called by Vercel Cron.
- * Processes queued prospects for all active campaigns.
+ * For each active campaign:
+ *   1. Auto-sources fresh prospects based on ICP
+ *   2. Scans them (website scrape + LLM analysis)
+ *   3. Generates PDFs + email drafts
  */
 
 import { NextRequest, NextResponse } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { runBatch, campaignRowToConfig } from "@/lib/engine/pipeline";
+import { sourceProspects } from "@/lib/engine/sourcer";
 
-export const maxDuration = 300; // 5 minutes (Vercel Pro)
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   // Verify cron secret
@@ -31,7 +35,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Failed to load campaigns" }, { status: 500 });
   }
 
-  const summary: Record<string, { succeeded: number; failed: number }> = {};
+  const summary: Record<string, { sourced: number; succeeded: number; failed: number }> = {};
 
   for (const campaign of campaigns) {
     const config = campaignRowToConfig(campaign);
@@ -56,8 +60,42 @@ export async function POST(request: NextRequest) {
     const remaining = Math.max(0, profile.daily_limit - (todayCount ?? 0));
     if (remaining === 0) continue;
 
-    // Get queued prospects for today
     const limit = Math.min(remaining, config.dailyProspectCount);
+
+    // ── Step 1: Auto-source fresh prospects ──────────────────────────
+    const alreadyScanned = new Set<string>();
+    const { data: existing } = await supabase
+      .from("prospects")
+      .select("target")
+      .eq("campaign_id", campaign.id);
+
+    if (existing) {
+      existing.forEach((p) => alreadyScanned.add(p.target.toLowerCase()));
+    }
+
+    const newProspects = await sourceProspects({
+      icpDescription: campaign.icp_description ?? "",
+      icpIndustry: campaign.icp_industry ?? "",
+      icpKeywords: campaign.icp_keywords ?? "",
+      count: limit,
+      alreadyScanned,
+    });
+
+    // Insert new prospects
+    if (newProspects.length > 0) {
+      await supabase.from("prospects").upsert(
+        newProspects.map((target) => ({
+          campaign_id: campaign.id,
+          user_id: campaign.user_id,
+          target,
+          status: "queued",
+          queued_for: today,
+        })),
+        { onConflict: "campaign_id,target" }
+      );
+    }
+
+    // ── Step 2: Get queued prospects and process ─────────────────────
     const { data: prospects } = await supabase
       .from("prospects")
       .select("*")
@@ -66,9 +104,12 @@ export async function POST(request: NextRequest) {
       .order("created_at", { ascending: true })
       .limit(limit);
 
-    if (!prospects || prospects.length === 0) continue;
+    if (!prospects || prospects.length === 0) {
+      summary[campaign.name] = { sourced: newProspects.length, succeeded: 0, failed: 0 };
+      continue;
+    }
 
-    // Create pipeline run record
+    // Create pipeline run
     const { data: run } = await supabase
       .from("pipeline_runs")
       .insert({
@@ -108,6 +149,7 @@ export async function POST(request: NextRequest) {
     }
 
     summary[campaign.name] = {
+      sourced: newProspects.length,
       succeeded: result.succeeded,
       failed: result.failed,
     };
