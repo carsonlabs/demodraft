@@ -3,7 +3,9 @@ import Stripe from "stripe";
 import { createClient } from "@/lib/supabase/server";
 import { PLANS } from "@/lib/stripe/config";
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY!);
+function getStripe() {
+  return new Stripe(process.env.STRIPE_SECRET_KEY!);
+}
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -23,6 +25,8 @@ export async function POST(request: NextRequest) {
   if (!priceId) {
     return NextResponse.json({ error: "Price not configured" }, { status: 500 });
   }
+
+  const stripe = getStripe();
 
   // Check for existing Stripe customer
   const { data: profile } = await supabase
