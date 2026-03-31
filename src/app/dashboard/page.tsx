@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { DraftCard } from "@/components/draft-card";
-import { QuickScan } from "@/components/quick-scan";
+import Link from "next/link";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -65,9 +65,6 @@ export default async function DashboardPage() {
         </div>
       </div>
 
-      {/* Quick scan */}
-      <QuickScan />
-
       {/* Today's drafts */}
       {(todayDrafts?.length ?? 0) > 0 ? (
         <div className="mb-12">
@@ -78,7 +75,34 @@ export default async function DashboardPage() {
             ))}
           </div>
         </div>
-      ) : null}
+      ) : (
+        <div className="bg-gray-900 rounded-xl border border-gray-800 p-12 text-center mb-12">
+          <div className="w-16 h-16 rounded-full bg-indigo-600/10 border border-indigo-500/20 flex items-center justify-center mx-auto mb-4">
+            <svg className="w-8 h-8 text-indigo-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20.354 15.354A9 9 0 018.646 3.646 9.003 9.003 0 0012 21a9.003 9.003 0 008.354-5.646z" />
+            </svg>
+          </div>
+          <h3 className="text-lg font-medium text-white mb-2">No drafts yet today</h3>
+          <p className="text-gray-400 text-sm max-w-md mx-auto">
+            Your pipeline runs every morning at 8 AM. Once you&apos;ve set up a campaign and
+            uploaded prospects, your personalized drafts will appear here — ready to copy and send.
+          </p>
+          <div className="flex items-center justify-center gap-3 mt-6">
+            <Link
+              href="/dashboard/campaigns/new"
+              className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-500 transition-colors"
+            >
+              Create a campaign
+            </Link>
+            <Link
+              href="/dashboard/prospects"
+              className="px-4 py-2 bg-gray-800 text-white text-sm font-medium rounded-lg hover:bg-gray-700 transition-colors"
+            >
+              Upload prospects
+            </Link>
+          </div>
+        </div>
+      )}
 
       {/* Recent drafts */}
       {(recentDrafts?.length ?? 0) > 0 && (
