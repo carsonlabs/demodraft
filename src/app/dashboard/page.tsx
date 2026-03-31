@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { DraftCard } from "@/components/draft-card";
+import { QuickScan } from "@/components/quick-scan";
 
 export default async function DashboardPage() {
   const supabase = await createClient();
@@ -64,6 +65,9 @@ export default async function DashboardPage() {
         </div>
       </div>
 
+      {/* Quick scan */}
+      <QuickScan />
+
       {/* Today's drafts */}
       {(todayDrafts?.length ?? 0) > 0 ? (
         <div className="mb-12">
@@ -74,20 +78,7 @@ export default async function DashboardPage() {
             ))}
           </div>
         </div>
-      ) : (
-        <div className="bg-gray-900 rounded-xl border border-gray-800 p-12 text-center mb-12">
-          <h3 className="text-lg font-medium text-white mb-2">No drafts today yet</h3>
-          <p className="text-gray-400 text-sm mb-4">
-            Your pipeline runs automatically each morning, or you can scan a prospect manually.
-          </p>
-          <a
-            href="/dashboard/campaigns"
-            className="inline-flex items-center px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-lg hover:bg-indigo-500 transition-colors"
-          >
-            Set up a campaign
-          </a>
-        </div>
-      )}
+      ) : null}
 
       {/* Recent drafts */}
       {(recentDrafts?.length ?? 0) > 0 && (
