@@ -196,7 +196,20 @@ Generate the analysis JSON. Be specific to THIS prospect's actual content.`;
 }
 
 /**
- * Compose a personalized email from scan results.
+ * Email subject line variants — rotated for A/B testing.
+ * The pipeline picks one based on prospect index to ensure variety.
+ */
+const SUBJECT_TEMPLATES = [
+  (name: string, company: string) => `Idea for ${name} + ${company}`,
+  (name: string, company: string) => `Quick analysis of ${name}`,
+  (name: string, _company: string) => `${name} — spotted something`,
+];
+
+/**
+ * Compose a personalized cold email from scan results.
+ *
+ * Philosophy: 3 sentences max. The PDF does the heavy lifting.
+ * The email just needs to get them to open the attachment.
  */
 export function composeEmail(
   result: ScanResult,
@@ -205,36 +218,39 @@ export function composeEmail(
 ): { subject: string; body: string } {
   const meta = result.meta as Record<string, unknown> | undefined;
   const keyInsight = (meta?.keyInsight as string) ?? "some opportunities for improvement";
-  const painPoints = (meta?.painPoints as string[]) ?? [];
 
-  const topIssues = result.checks
-    .filter((c) => c.status === "fail" || c.status === "warn")
-    .sort((a, b) => b.weight - a.weight)
-    .slice(0, 3);
+  const topIssue = result.checks
+    .filter((c) => c.status === "fail")
+    .sort((a, b) => b.weight - a.weight)[0];
 
-  const subject = `Idea for ${result.displayName} + ${campaign.brand.company}`;
+  // Rotate subject lines
+  const subjectFn = SUBJECT_TEMPLATES[
+    Math.abs(hashCode(result.target)) % SUBJECT_TEMPLATES.length
+  ]!;
+  const subject = subjectFn(result.displayName, campaign.brand.company);
 
-  const issuesList = topIssues
-    .map((c) => `- ${c.name}: ${c.recommendation ?? c.details}`)
-    .join("\n");
+  const specificHook = topIssue
+    ? topIssue.recommendation ?? topIssue.details
+    : keyInsight;
 
-  const body = `Hi${prospectEmail ? "" : " there"},
+  const body = `Hi,
 
-I was looking at ${result.target} this morning and noticed ${keyInsight}.
+I was looking at ${result.target} and noticed ${keyInsight.toLowerCase()}.
 
-I built a quick custom analysis showing exactly how ${campaign.brand.company} could help. Here are the highlights:
+I put together a quick custom report — ${specificHook.length > 80 ? specificHook.slice(0, 80) + "..." : specificHook}. Full breakdown attached as a PDF.
 
-${issuesList}
+Worth a look?
 
-I've attached the full report as a PDF — it covers ${result.checks.length} checks across ${result.categories.length} areas.
-
-${campaign.brand.site ? `You can also check it out at ${campaign.brand.site}` : ""}
-
-Let me know if you're open to a quick chat after taking a look?
-
-Best,
 ${campaign.brand.name}
-${campaign.brand.company}${campaign.brand.calendarLink ? `\n\nBook a time: ${campaign.brand.calendarLink}` : ""}`;
+${campaign.brand.company}${campaign.brand.site ? ` · ${campaign.brand.site}` : ""}`;
 
   return { subject, body };
+}
+
+function hashCode(s: string): number {
+  let hash = 0;
+  for (let i = 0; i < s.length; i++) {
+    hash = ((hash << 5) - hash + s.charCodeAt(i)) | 0;
+  }
+  return hash;
 }
