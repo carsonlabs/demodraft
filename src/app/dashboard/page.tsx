@@ -1,5 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { DraftCard } from "@/components/draft-card";
+import { QuickScan } from "@/components/quick-scan";
 import Link from "next/link";
 
 export default async function DashboardPage({
@@ -114,6 +115,9 @@ export default async function DashboardPage({
           <p className="text-gray-500 text-xs">drafts today</p>
         </div>
       </div>
+
+      {/* Quick scan */}
+      {hasCampaigns && <QuickScan />}
 
       {/* Today's drafts */}
       {(todayDrafts?.length ?? 0) > 0 ? (

@@ -149,33 +149,41 @@ export async function processProspect(
 
 /**
  * Run the pipeline for a batch of prospects (daily cron or manual trigger).
+ * Processes up to `concurrency` prospects in parallel for speed.
  */
 export async function runBatch(
   supabase: SupabaseClient,
   campaign: CampaignConfig,
   prospects: ProspectInput[],
-  rateLimit = 2000
+  concurrency = 3
 ): Promise<{ succeeded: number; failed: number; results: DraftResult[] }> {
   console.log(`\nDemoDraft Pipeline — ${campaign.brand.company}`);
-  console.log(`Processing ${prospects.length} prospects...\n`);
+  console.log(`Processing ${prospects.length} prospects (concurrency: ${concurrency})...\n`);
 
   const results: DraftResult[] = [];
   let succeeded = 0;
   let failed = 0;
+  let completed = 0;
 
-  for (let i = 0; i < prospects.length; i++) {
-    const prospect = prospects[i]!;
-    console.log(`[${i + 1}/${prospects.length}] ${prospect.target}`);
+  // Process in chunks of `concurrency`
+  for (let i = 0; i < prospects.length; i += concurrency) {
+    const chunk = prospects.slice(i, i + concurrency);
+    const chunkResults = await Promise.allSettled(
+      chunk.map(async (prospect, j) => {
+        console.log(`[${i + j + 1}/${prospects.length}] ${prospect.target}`);
+        return processProspect(supabase, campaign, prospect);
+      })
+    );
 
-    const result = await processProspect(supabase, campaign, prospect);
-    results.push(result);
-
-    if (result.status === "success") succeeded++;
-    else failed++;
-
-    // Rate limit between scans
-    if (i < prospects.length - 1 && rateLimit > 0) {
-      await new Promise((r) => setTimeout(r, rateLimit));
+    for (const settled of chunkResults) {
+      completed++;
+      if (settled.status === "fulfilled") {
+        results.push(settled.value);
+        if (settled.value.status === "success") succeeded++;
+        else failed++;
+      } else {
+        failed++;
+      }
     }
   }
 

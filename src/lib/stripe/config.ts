@@ -2,9 +2,9 @@ export const PLANS = {
   free: {
     name: "Free",
     price: 0,
-    dailyLimit: 0,
+    dailyLimit: 3,
     campaigns: 1,
-    features: ["1 campaign", "Preview mode only", "See how it works"],
+    features: ["1 campaign", "3 demos per day", "See real results before upgrading"],
   },
   starter: {
     name: "Starter",

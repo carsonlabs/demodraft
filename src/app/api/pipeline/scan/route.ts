@@ -106,6 +106,16 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  // Get the PDF URL from the draft we just inserted
+  const { data: insertedDraft } = await admin
+    .from("drafts")
+    .select("pdf_url")
+    .eq("prospect_id", prospect.id)
+    .eq("campaign_id", campaignId)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .single();
+
   return NextResponse.json({
     status: "success",
     draft: {
@@ -113,7 +123,7 @@ export async function POST(request: NextRequest) {
       displayName: result.displayName,
       score: result.scanScore,
       grade: result.scanGrade,
-      pdfUrl: result.pdfFilename ? undefined : null,
+      pdfUrl: insertedDraft?.pdf_url ?? null,
       emailSubject: result.emailSubject,
       emailBody: result.emailBody,
     },

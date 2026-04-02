@@ -11,7 +11,7 @@ const plans = [
     price: "$0",
     period: "",
     description: "See how it works",
-    features: ["1 campaign", "Preview mode", "See the demo pipeline in action"],
+    features: ["1 campaign", "3 demos per day", "See real results before upgrading"],
     cta: "Get Started",
     highlighted: false,
   },

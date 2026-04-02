@@ -6,12 +6,12 @@
  * structured analysis based on the user's campaign config.
  */
 
-import Anthropic from "@anthropic-ai/sdk";
 import * as cheerio from "cheerio";
+import { getAnthropicClient, MODEL } from "@/lib/anthropic";
 import type { ScanResult, CampaignConfig } from "./types";
 
 const BROWSER_UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
 
 interface ScrapedSite {
   url: string;
@@ -101,40 +101,15 @@ const DEFAULT_ANALYSIS_PROMPT = `You are a sales analyst. Given a prospect's web
 
 Be specific — reference actual content from their website. Don't be generic.
 
-Return a JSON object matching this exact schema:
-{
-  "displayName": "Company Name",
-  "overallScore": 0-100 (how well the product fits this prospect),
-  "grade": "A" | "B" | "C" | "D" | "F",
-  "subtitle": "One-line summary of the analysis",
-  "categories": [
-    { "id": "string", "label": "string", "score": 0-100, "checkCount": number, "passCount": number }
-  ],
-  "checks": [
-    {
-      "name": "Check name",
-      "status": "pass" | "warn" | "fail",
-      "details": "What we found on their site",
-      "recommendation": "How our product specifically helps",
-      "score": 0-100,
-      "weight": 1-10,
-      "category": "category-id"
-    }
-  ],
-  "meta": {
-    "keyInsight": "The single most compelling reason this prospect needs this product",
-    "painPoints": ["pain1", "pain2", "pain3"],
-    "opportunities": ["opp1", "opp2"]
-  }
-}
-
 Generate 5-8 checks across 2-3 categories. Mix of pass/warn/fail based on what you actually see.
 A "fail" check = clear opportunity where the product solves a visible problem.
 A "warn" check = potential opportunity that could exist.
 A "pass" check = something they're already doing well (builds credibility).
 
 The score should reflect fit: 30-50 = great fit (lots of problems to solve), 50-70 = good fit, 70-90 = moderate fit, 90+ = they don't need much help.
-IMPORTANT: Lower scores are BETTER for outreach (more pain = more reason to buy). Frame it as "readiness" or "health" so lower = worse for them but better for us.`;
+IMPORTANT: Lower scores are BETTER for outreach (more pain = more reason to buy). Frame it as "readiness" or "health" so lower = worse for them but better for us.
+
+For meta.keyInsight: write the single most compelling reason this prospect needs the product.`;
 
 /**
  * Run the generic LLM-powered scan against a prospect.
@@ -164,32 +139,79 @@ export async function scanProspect(
 
 Generate the analysis JSON. Be specific to THIS prospect's actual content.`;
 
-  // 3. Call Claude
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    throw new Error("ANTHROPIC_API_KEY not configured");
-  }
-  const anthropic = new Anthropic({ apiKey });
+  // 3. Call Claude with structured outputs — guarantees valid JSON
+  const anthropic = getAnthropicClient();
   const message = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 2000,
+    model: MODEL,
+    max_tokens: 4000,
     messages: [
       { role: "user", content: userPrompt },
     ],
-    system: systemPrompt,
+    system: [{ type: "text" as const, text: systemPrompt, cache_control: { type: "ephemeral" as const } }],
+    output_config: {
+      format: {
+        type: "json_schema" as const,
+        schema: {
+          type: "object",
+          properties: {
+            displayName: { type: "string" },
+            overallScore: { type: "integer" },
+            grade: { type: "string", enum: ["A", "B", "C", "D", "F"] },
+            subtitle: { type: "string" },
+            categories: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  id: { type: "string" },
+                  label: { type: "string" },
+                  score: { type: "integer" },
+                  checkCount: { type: "integer" },
+                  passCount: { type: "integer" },
+                },
+                required: ["id", "label", "score", "checkCount", "passCount"],
+                additionalProperties: false,
+              },
+            },
+            checks: {
+              type: "array",
+              items: {
+                type: "object",
+                properties: {
+                  name: { type: "string" },
+                  status: { type: "string", enum: ["pass", "warn", "fail"] },
+                  details: { type: "string" },
+                  recommendation: { type: "string" },
+                  score: { type: "integer" },
+                  weight: { type: "integer" },
+                  category: { type: "string" },
+                },
+                required: ["name", "status", "details", "recommendation", "score", "weight", "category"],
+                additionalProperties: false,
+              },
+            },
+            meta: {
+              type: "object",
+              properties: {
+                keyInsight: { type: "string" },
+                painPoints: { type: "array", items: { type: "string" } },
+                opportunities: { type: "array", items: { type: "string" } },
+              },
+              required: ["keyInsight", "painPoints", "opportunities"],
+              additionalProperties: false,
+            },
+          },
+          required: ["displayName", "overallScore", "grade", "subtitle", "categories", "checks", "meta"],
+          additionalProperties: false,
+        },
+      },
+    },
   });
 
-  // 4. Parse the response
+  // 4. Parse — structured outputs guarantee valid JSON in the first text block
   const responseText =
     message.content[0]?.type === "text" ? message.content[0].text : "";
-
-  // Extract JSON from the response (handle markdown code blocks)
-  const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) {
-    throw new Error("LLM did not return valid JSON analysis");
-  }
-
-  const analysis = JSON.parse(jsonMatch[0]) as ScanResult;
+  const analysis = JSON.parse(responseText) as ScanResult;
   analysis.target = target;
 
   return analysis;

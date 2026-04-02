@@ -12,11 +12,11 @@
 
 import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
-import Anthropic from "@anthropic-ai/sdk";
+import { getAnthropicClient, MODEL } from "@/lib/anthropic";
 import * as cheerio from "cheerio";
 
 const BROWSER_UA =
-  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36";
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
 
 export async function POST(request: NextRequest) {
   const supabase = await createClient();
@@ -71,47 +71,76 @@ export async function POST(request: NextRequest) {
   $("nav, footer, script, style, noscript, iframe").remove();
   const bodyText = $("body").text().replace(/\s+/g, " ").trim().slice(0, 3000);
 
-  // Ask Claude to analyze
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: "API not configured" }, { status: 500 });
-  }
+  // Ask Claude with structured outputs — guaranteed valid JSON
+  const anthropic = getAnthropicClient();
 
-  const anthropic = new Anthropic({ apiKey });
-
-  const message = await anthropic.messages.create({
-    model: "claude-sonnet-4-20250514",
-    max_tokens: 1000,
-    system: `You analyze a business website and extract key information for a sales outreach tool. Return ONLY a JSON object, no other text.`,
-    messages: [
-      {
-        role: "user",
-        content: `Analyze this website and tell me what the business sells and who their ideal customer is.
+  try {
+    const message = await anthropic.messages.create({
+      model: MODEL,
+      max_tokens: 1000,
+      system: [
+        {
+          type: "text" as const,
+          text: `You analyze a business website and extract key information for a sales outreach tool. Be specific and concise.`,
+          cache_control: { type: "ephemeral" as const },
+        },
+      ],
+      messages: [
+        {
+          role: "user",
+          content: `Analyze this website and tell me what the business sells and who their ideal customer is.
 
 **URL:** ${domain}
 **Title:** ${title}
 **Meta Description:** ${metaDesc}
 **Headings:** ${headings.join(" | ")}
-**Content:** ${bodyText.slice(0, 2000)}
-
-Return this exact JSON format:
-{
-  "productName": "the company/product name",
-  "valueProp": "one-line description of what they sell and the key benefit (max 100 chars)",
-  "icpDescription": "2-3 sentence description of their ideal customer — who buys this, what size company, what pain they have",
-  "icpIndustry": "one of: E-commerce / DTC, SaaS / Software, Agency / Consulting, Blog / Content / Media, Restaurant / Food Service, Fitness / Wellness, Real Estate, Healthcare / Medical, Finance / Accounting, Other"
-}`,
+**Content:** ${bodyText.slice(0, 2000)}`,
+        },
+      ],
+      output_config: {
+        format: {
+          type: "json_schema" as const,
+          schema: {
+            type: "object",
+            properties: {
+              productName: {
+                type: "string",
+                description: "The company or product name",
+              },
+              valueProp: {
+                type: "string",
+                description: "One-line description of what they sell and the key benefit (max 100 chars)",
+              },
+              icpDescription: {
+                type: "string",
+                description: "2-3 sentence description of their ideal customer — who buys this, what size company, what pain they have",
+              },
+              icpIndustry: {
+                type: "string",
+                enum: [
+                  "E-commerce / DTC",
+                  "SaaS / Software",
+                  "Agency / Consulting",
+                  "Blog / Content / Media",
+                  "Restaurant / Food Service",
+                  "Fitness / Wellness",
+                  "Real Estate",
+                  "Healthcare / Medical",
+                  "Finance / Accounting",
+                  "Other",
+                ],
+              },
+            },
+            required: ["productName", "valueProp", "icpDescription", "icpIndustry"],
+            additionalProperties: false,
+          },
+        },
       },
-    ],
-  });
+    });
 
-  const responseText =
-    message.content[0]?.type === "text" ? message.content[0].text : "";
-
-  try {
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) throw new Error("No JSON");
-    const result = JSON.parse(jsonMatch[0]);
+    const responseText =
+      message.content[0]?.type === "text" ? message.content[0].text : "";
+    const result = JSON.parse(responseText);
 
     return NextResponse.json({
       productName: result.productName ?? domain,
@@ -121,6 +150,7 @@ Return this exact JSON format:
       website: domain,
     });
   } catch {
+    // Fallback to scraped data if LLM fails
     return NextResponse.json({
       productName: title || domain,
       valueProp: metaDesc || "",

@@ -325,19 +325,27 @@ export async function generatePdfBuffer(
           .fillColor(BASE_COLORS.white)
           .text(String(i + 1), M + 6, issueY + 3, { lineBreak: false });
         doc.fontSize(11).fillColor(BASE_COLORS.text).text(check.name, M + 30, issueY);
+
+        // Measure actual text height to prevent overlap
+        const detailText = check.details.length > 200 ? check.details.slice(0, 197) + "..." : check.details;
+        const detailHeight = doc.fontSize(8).heightOfString(detailText, { width: CW - 40 });
         doc
           .fontSize(8)
           .fillColor(BASE_COLORS.muted)
-          .text(check.details, M + 30, issueY + 16, { width: CW - 40 });
+          .text(detailText, M + 30, issueY + 16, { width: CW - 40 });
+
+        const detailBottom = issueY + 16 + detailHeight;
 
         if (check.recommendation) {
+          const recText = check.recommendation.length > 200 ? check.recommendation.slice(0, 197) + "..." : check.recommendation;
+          const recHeight = doc.fontSize(8).heightOfString(`Fix: ${recText}`, { width: CW - 40 });
           doc
             .fontSize(8)
             .fillColor(primary)
-            .text(`Fix: ${check.recommendation}`, M + 30, issueY + 30, { width: CW - 40 });
-          issueY += 55;
+            .text(`Fix: ${recText}`, M + 30, detailBottom + 4, { width: CW - 40 });
+          issueY = detailBottom + 4 + recHeight + 16;
         } else {
-          issueY += 45;
+          issueY = detailBottom + 16;
         }
       });
 
