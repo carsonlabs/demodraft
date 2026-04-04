@@ -104,10 +104,14 @@ export async function generatePdfBuffer(
     doc.fontSize(20).fillColor(BASE_COLORS.white).text("Report", M, 205, { width: CW });
 
     doc.fontSize(20).fillColor(primary).text(result.displayName, M, 280, { width: CW });
+    const nameHeight = doc.fontSize(20).heightOfString(result.displayName, { width: CW });
+    let coverY = 280 + nameHeight + 8;
     if (result.subtitle) {
-      doc.fontSize(11).fillColor(BASE_COLORS.muted).text(result.subtitle, M, 310, { width: CW });
+      doc.fontSize(11).fillColor(BASE_COLORS.muted).text(result.subtitle, M, coverY, { width: CW });
+      const subHeight = doc.fontSize(11).heightOfString(result.subtitle, { width: CW });
+      coverY += subHeight + 8;
     }
-    doc.fontSize(12).fillColor(BASE_COLORS.muted).text(today, M, 335, { width: CW });
+    doc.fontSize(12).fillColor(BASE_COLORS.muted).text(today, M, coverY, { width: CW });
 
     doc.moveTo(M, 360).lineTo(M + 200, 360).lineWidth(2).stroke(primary);
 
@@ -377,22 +381,24 @@ export async function generatePdfBuffer(
           }
 
           if (section.type === "text" && section.content) {
+            const textHeight = doc.fontSize(10).heightOfString(section.content, { width: CW });
             doc
               .fontSize(10)
               .fillColor(BASE_COLORS.muted)
               .text(section.content, M, sectionY, { width: CW });
-            sectionY += 40;
+            sectionY += textHeight + 12;
           }
 
           if (section.type === "list" && section.items) {
             for (const item of section.items) {
               if (sectionY > FOOTER_Y - 30) break;
+              const itemHeight = doc.fontSize(9).heightOfString(item, { width: CW - 20 });
               doc.circle(M + 6, sectionY + 5, 3).fill(primary);
               doc
                 .fontSize(9)
                 .fillColor(BASE_COLORS.text)
                 .text(item, M + 16, sectionY, { width: CW - 20 });
-              sectionY += 18;
+              sectionY += Math.max(itemHeight, 14) + 6;
             }
             sectionY += 10;
           }
@@ -448,11 +454,12 @@ export async function generatePdfBuffer(
         .fillColor(BASE_COLORS.white)
         .text(String(i + 1), M + 6, stepY + 3, { lineBreak: false });
       doc.fontSize(11).fillColor(BASE_COLORS.text).text(step.title, M + 30, stepY);
+      const descHeight = doc.fontSize(9).heightOfString(step.description, { width: CW - 40 });
       doc
         .fontSize(9)
         .fillColor(BASE_COLORS.muted)
         .text(step.description, M + 30, stepY + 16, { width: CW - 40 });
-      stepY += 55;
+      stepY += 16 + descHeight + 20;
     });
 
     // Pricing box
