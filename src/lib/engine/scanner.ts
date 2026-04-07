@@ -8,6 +8,8 @@
 
 import * as cheerio from "cheerio";
 import { getAnthropicClient, MODEL } from "@/lib/anthropic";
+import { scanWithCache } from "@/lib/cache";
+import { retryApiCall, isRetryableError } from "@/lib/retry";
 import type { ScanResult, CampaignConfig } from "./types";
 
 const BROWSER_UA =
@@ -118,8 +120,11 @@ export async function scanProspect(
   target: string,
   campaign: CampaignConfig
 ): Promise<ScanResult> {
-  // 1. Scrape the website
-  const scraped = await scrapeSite(target);
+  // 1. Scrape the website with retry logic
+  const scraped = await retryApiCall(() => scrapeSite(target), {
+    maxRetries: 2,
+    baseDelayMs: 500,
+  });
 
   // 2. Build the LLM prompt
   const systemPrompt = campaign.analysisPrompt || DEFAULT_ANALYSIS_PROMPT;
@@ -139,79 +144,90 @@ export async function scanProspect(
 
 Generate the analysis JSON. Be specific to THIS prospect's actual content.`;
 
-  // 3. Call Claude with structured outputs — guarantees valid JSON
+  // 3. Call Claude with structured outputs and caching
+  const cacheKey = `scan:${target}:${campaign.id}:${systemPrompt.slice(0, 100)}`;
+  
   const anthropic = getAnthropicClient();
-  const message = await anthropic.messages.create({
-    model: MODEL,
-    max_tokens: 4000,
-    messages: [
-      { role: "user", content: userPrompt },
-    ],
-    system: [{ type: "text" as const, text: systemPrompt, cache_control: { type: "ephemeral" as const } }],
-    output_config: {
-      format: {
-        type: "json_schema" as const,
-        schema: {
-          type: "object",
-          properties: {
-            displayName: { type: "string" },
-            overallScore: { type: "integer" },
-            grade: { type: "string", enum: ["A", "B", "C", "D", "F"] },
-            subtitle: { type: "string" },
-            categories: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  id: { type: "string" },
-                  label: { type: "string" },
-                  score: { type: "integer" },
-                  checkCount: { type: "integer" },
-                  passCount: { type: "integer" },
-                },
-                required: ["id", "label", "score", "checkCount", "passCount"],
-                additionalProperties: false,
-              },
-            },
-            checks: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  name: { type: "string" },
-                  status: { type: "string", enum: ["pass", "warn", "fail"] },
-                  details: { type: "string" },
-                  recommendation: { type: "string" },
-                  score: { type: "integer" },
-                  weight: { type: "integer" },
-                  category: { type: "string" },
-                },
-                required: ["name", "status", "details", "recommendation", "score", "weight", "category"],
-                additionalProperties: false,
-              },
-            },
-            meta: {
+  const analysis = await scanWithCache(cacheKey, async () => {
+    const message = await retryApiCall(
+      () => anthropic.messages.create({
+        model: MODEL,
+        max_tokens: 4000,
+        messages: [
+          { role: "user", content: userPrompt },
+        ],
+        system: [{ type: "text" as const, text: systemPrompt, cache_control: { type: "ephemeral" as const } }],
+        output_config: {
+          format: {
+            type: "json_schema" as const,
+            schema: {
               type: "object",
               properties: {
-                keyInsight: { type: "string" },
-                painPoints: { type: "array", items: { type: "string" } },
-                opportunities: { type: "array", items: { type: "string" } },
+                displayName: { type: "string" },
+                overallScore: { type: "integer" },
+                grade: { type: "string", enum: ["A", "B", "C", "D", "F"] },
+                subtitle: { type: "string" },
+                categories: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      id: { type: "string" },
+                      label: { type: "string" },
+                      score: { type: "integer" },
+                      checkCount: { type: "integer" },
+                      passCount: { type: "integer" },
+                    },
+                    required: ["id", "label", "score", "checkCount", "passCount"],
+                    additionalProperties: false,
+                  },
+                },
+                checks: {
+                  type: "array",
+                  items: {
+                    type: "object",
+                    properties: {
+                      name: { type: "string" },
+                      status: { type: "string", enum: ["pass", "warn", "fail"] },
+                      details: { type: "string" },
+                      recommendation: { type: "string" },
+                      score: { type: "integer" },
+                      weight: { type: "integer" },
+                      category: { type: "string" },
+                    },
+                    required: ["name", "status", "details", "recommendation", "score", "weight", "category"],
+                    additionalProperties: false,
+                  },
+                },
+                meta: {
+                  type: "object",
+                  properties: {
+                    keyInsight: { type: "string" },
+                    painPoints: { type: "array", items: { type: "string" } },
+                    opportunities: { type: "array", items: { type: "string" } },
+                  },
+                  required: ["keyInsight", "painPoints", "opportunities"],
+                  additionalProperties: false,
+                },
               },
-              required: ["keyInsight", "painPoints", "opportunities"],
+              required: ["displayName", "overallScore", "grade", "subtitle", "categories", "checks", "meta"],
               additionalProperties: false,
             },
           },
-          required: ["displayName", "overallScore", "grade", "subtitle", "categories", "checks", "meta"],
-          additionalProperties: false,
         },
-      },
-    },
-  });
+      }),
+      {
+        maxRetries: 3,
+        shouldRetry: isRetryableError,
+      }
+    );
 
-  // 4. Parse — structured outputs guarantee valid JSON in the first text block
-  const responseText =
-    message.content[0]?.type === "text" ? message.content[0].text : "";
-  const analysis = JSON.parse(responseText) as ScanResult;
+    // Parse — structured outputs guarantee valid JSON in the first text block
+    const responseText =
+      message.content[0]?.type === "text" ? message.content[0].text : "";
+    return JSON.parse(responseText) as ScanResult;
+  });
+  
   analysis.target = target;
 
   return analysis;
