@@ -224,6 +224,14 @@ export default function LandingPage() {
             </Link>
           </div>
         </div>
+        <div className="max-w-6xl mx-auto mt-6 pt-6 border-t border-gray-800/50 flex flex-wrap items-center justify-center gap-x-4 gap-y-1 text-xs text-gray-600">
+          <span className="text-gray-500">More from Freedom Engineers</span>
+          <a href="https://yorklivingcost.ca" className="hover:text-gray-400 transition-colors">YorkLivingCost</a>
+          <a href="https://linkrescue.io" className="hover:text-gray-400 transition-colors">LinkRescue</a>
+          <a href="https://agentready.tools" className="hover:text-gray-400 transition-colors">AgentReady</a>
+          <a href="https://selfheal.dev" className="hover:text-gray-400 transition-colors">SelfHeal</a>
+          <a href="https://freedomengineers.tech" className="hover:text-gray-400 transition-colors">Freedom Engineers</a>
+        </div>
       </footer>
     </div>
   );
