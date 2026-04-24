@@ -21,6 +21,21 @@ export async function POST(request: NextRequest) {
 
   const supabase = createAdminClient();
 
+  // Idempotency: a Stripe retry of the same event.id must not re-apply plan
+  // mutations. INSERT fails on PK collision → short-circuit.
+  const { error: dedupeError } = await supabase
+    .from("stripe_webhook_events")
+    .insert({ id: event.id, type: event.type });
+  if (dedupeError) {
+    // Postgres unique-violation code = 23505
+    const code = (dedupeError as { code?: string }).code;
+    if (code === "23505") {
+      return NextResponse.json({ received: true, duplicate: true });
+    }
+    console.error("[stripe] idempotency insert failed:", dedupeError);
+    // Fail open: better to process than to drop. Stripe will retry on 5xx.
+  }
+
   switch (event.type) {
     case "checkout.session.completed": {
       const session = event.data.object as Stripe.Checkout.Session;

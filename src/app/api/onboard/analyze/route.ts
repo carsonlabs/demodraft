@@ -14,6 +14,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { createClient } from "@/lib/supabase/server";
 import { getAnthropicClient, MODEL } from "@/lib/anthropic";
 import * as cheerio from "cheerio";
+import { safeFetch, SsrfError } from "@/lib/security/url-safety";
+import { rateLimit } from "@/lib/security/rate-limit";
+import { wrapUntrusted, UNTRUSTED_INSTRUCTION } from "@/lib/security/prompt-delimit";
 
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
@@ -26,6 +29,16 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
+  // Per-user cap on onboarding analysis — each call scrapes a site + runs
+  // Claude, so it's an expensive LLM-burning endpoint. Authed users only.
+  const rl = await rateLimit(`onboard-analyze:${user.id}`, 30, 24 * 60 * 60 * 1000);
+  if (!rl.allowed) {
+    return NextResponse.json(
+      { error: "Daily analysis limit reached. Try again tomorrow." },
+      { status: 429 },
+    );
+  }
+
   const { url } = await request.json();
   if (!url) {
     return NextResponse.json({ error: "url required" }, { status: 400 });
@@ -33,29 +46,33 @@ export async function POST(request: NextRequest) {
 
   const domain = url.trim().replace(/^https?:\/\//, "").replace(/\/+$/, "");
 
-  // Scrape the site
+  // Scrape the site. safeFetch blocks SSRF (private/link-local IPs, non-http(s)
+  // schemes, redirect hops to private hosts).
   let html = "";
   try {
     const fetchUrl = `https://${domain}`;
-    const res = await fetch(fetchUrl, {
-      signal: AbortSignal.timeout(10_000),
+    const res = await safeFetch(fetchUrl, {
+      timeoutMs: 10_000,
       headers: { "User-Agent": BROWSER_UA },
-      redirect: "follow",
     });
 
     if (!res.ok) {
-      // Try www
-      const wwwRes = await fetch(`https://www.${domain}`, {
-        signal: AbortSignal.timeout(10_000),
+      const wwwRes = await safeFetch(`https://www.${domain}`, {
+        timeoutMs: 10_000,
         headers: { "User-Agent": BROWSER_UA },
-        redirect: "follow",
       });
       if (wwwRes.ok) html = await wwwRes.text();
       else return NextResponse.json({ error: `Could not fetch ${domain}` }, { status: 400 });
     } else {
       html = await res.text();
     }
-  } catch {
+  } catch (err) {
+    if (err instanceof SsrfError) {
+      return NextResponse.json(
+        { error: `${domain} resolves to a private or reserved network.` },
+        { status: 400 },
+      );
+    }
     return NextResponse.json({ error: `Could not reach ${domain}` }, { status: 400 });
   }
 
@@ -81,20 +98,23 @@ export async function POST(request: NextRequest) {
       system: [
         {
           type: "text" as const,
-          text: `You analyze a business website and extract key information for a sales outreach tool. Be specific and concise.`,
+          text: `You analyze a business website and extract key information for a sales outreach tool. Be specific and concise.\n\n${UNTRUSTED_INSTRUCTION}`,
           cache_control: { type: "ephemeral" as const },
         },
       ],
       messages: [
         {
           role: "user",
-          content: `Analyze this website and tell me what the business sells and who their ideal customer is.
-
-**URL:** ${domain}
-**Title:** ${title}
-**Meta Description:** ${metaDesc}
-**Headings:** ${headings.join(" | ")}
-**Content:** ${bodyText.slice(0, 2000)}`,
+          content:
+            `Analyze this website and tell me what the business sells and who their ideal customer is.\n\n` +
+            wrapUntrusted(
+              `**URL:** ${domain}\n` +
+                `**Title:** ${title}\n` +
+                `**Meta Description:** ${metaDesc}\n` +
+                `**Headings:** ${headings.join(" | ")}\n` +
+                `**Content:** ${bodyText.slice(0, 2000)}`,
+              { maxLength: 4000 },
+            ),
         },
       ],
       output_config: {

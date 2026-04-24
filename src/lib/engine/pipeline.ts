@@ -62,14 +62,11 @@ export async function processProspect(
       throw new Error(`PDF upload failed: ${uploadError.message}`);
     }
 
-    const { data: urlData } = supabase.storage
-      .from("reports")
-      .getPublicUrl(storagePath);
-
     // 5. Compose personalized email
     const email = composeEmail(scanResult, campaign, prospect.contactEmail);
 
-    // 6. Store draft in database
+    // 6. Store draft in database. `pdf_url` holds the storage path (not a public URL);
+    // the /api/drafts/[id]/pdf route mints a short-TTL signed URL for the owner.
     const { error: draftError } = await supabase.from("drafts").insert({
       prospect_id: prospect.id,
       campaign_id: campaign.id,
@@ -77,7 +74,7 @@ export async function processProspect(
       scan_score: scanResult.overallScore,
       scan_grade: scanResult.grade,
       scan_data: scanResult,
-      pdf_url: urlData.publicUrl,
+      pdf_url: storagePath,
       pdf_filename: pdfFilename,
       email_to: prospect.contactEmail,
       email_subject: email.subject,

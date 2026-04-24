@@ -106,10 +106,10 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  // Get the PDF URL from the draft we just inserted
+  // Look up the draft we just inserted and return the authenticated download endpoint.
   const { data: insertedDraft } = await admin
     .from("drafts")
-    .select("pdf_url")
+    .select("id")
     .eq("prospect_id", prospect.id)
     .eq("campaign_id", campaignId)
     .order("created_at", { ascending: false })
@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
       displayName: result.displayName,
       score: result.scanScore,
       grade: result.scanGrade,
-      pdfUrl: insertedDraft?.pdf_url ?? null,
+      pdfUrl: insertedDraft?.id ? `/api/drafts/${insertedDraft.id}/pdf` : null,
       emailSubject: result.emailSubject,
       emailBody: result.emailBody,
     },

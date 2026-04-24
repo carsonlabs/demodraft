@@ -91,7 +91,7 @@ export function DraftCard({ draft }: DraftCardProps) {
         <div className="flex items-center gap-3">
           {draft.pdf_url && (
             <a
-              href={draft.pdf_url}
+              href={`/api/drafts/${draft.id}/pdf`}
               target="_blank"
               rel="noopener noreferrer"
               onClick={(e) => e.stopPropagation()}
@@ -163,7 +163,7 @@ export function DraftCard({ draft }: DraftCardProps) {
             </button>
             {draft.pdf_url && (
               <a
-                href={draft.pdf_url}
+                href={`/api/drafts/${draft.id}/pdf`}
                 download={draft.pdf_filename}
                 className="py-2.5 px-4 bg-gray-800 text-white text-sm font-medium rounded-lg hover:bg-gray-700 transition-colors"
               >

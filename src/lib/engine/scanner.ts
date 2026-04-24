@@ -10,7 +10,11 @@ import * as cheerio from "cheerio";
 import { getAnthropicClient, MODEL } from "@/lib/anthropic";
 import { scanWithCache } from "@/lib/cache";
 import { retryApiCall, isRetryableError } from "@/lib/retry";
+import { safeFetch, SsrfError } from "@/lib/security/url-safety";
+import { wrapUntrusted, UNTRUSTED_INSTRUCTION } from "@/lib/security/prompt-delimit";
 import type { ScanResult, CampaignConfig } from "./types";
+
+export { SsrfError };
 
 const BROWSER_UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36";
@@ -72,19 +76,19 @@ function parseSiteHtml(html: string, url: string, domain: string): ScrapedSite {
 async function scrapeSite(domain: string): Promise<ScrapedSite> {
   const url = domain.startsWith("http") ? domain : `https://${domain}`;
 
-  const res = await fetch(url, {
-    signal: AbortSignal.timeout(10_000),
+  // SSRF-aware fetch: blocks private/reserved networks and re-validates
+  // every redirect hop.
+  const res = await safeFetch(url, {
+    timeoutMs: 10_000,
     headers: { "User-Agent": BROWSER_UA },
-    redirect: "follow",
   });
 
   if (!res.ok) {
     if (!domain.startsWith("www.")) {
       const wwwUrl = `https://www.${domain}`;
-      const retry = await fetch(wwwUrl, {
-        signal: AbortSignal.timeout(10_000),
+      const retry = await safeFetch(wwwUrl, {
+        timeoutMs: 10_000,
         headers: { "User-Agent": BROWSER_UA },
-        redirect: "follow",
       }).catch(() => null);
 
       if (retry?.ok) {
@@ -126,8 +130,20 @@ export async function scanProspect(
     baseDelayMs: 500,
   });
 
-  // 2. Build the LLM prompt
-  const systemPrompt = campaign.analysisPrompt || DEFAULT_ANALYSIS_PROMPT;
+  // 2. Build the LLM prompt. The prospect website content is attacker-controlled
+  // (they own the page). Wrap it in untrusted delimiters so Claude ignores any
+  // prompt-injection payloads embedded in the copy, meta, or headings.
+  const systemPrompt = `${campaign.analysisPrompt || DEFAULT_ANALYSIS_PROMPT}\n\n${UNTRUSTED_INSTRUCTION}`;
+
+  const prospectBlock = wrapUntrusted(
+    `**URL:** ${scraped.url}\n` +
+      `**Title:** ${scraped.title}\n` +
+      `**Meta Description:** ${scraped.metaDescription}\n` +
+      `**Key Headings:** ${scraped.headings.join(" | ")}\n` +
+      `**Tech Stack Detected:** ${scraped.techSignals.join(", ") || "None detected"}\n` +
+      `**Content:** ${scraped.bodyText.slice(0, 3000)}`,
+    { maxLength: 6000 },
+  );
 
   const userPrompt = `## Product/Service Being Sold
 **Company:** ${campaign.brand.company}
@@ -135,12 +151,7 @@ export async function scanProspect(
 **Product Description:** ${campaign.productDescription}
 
 ## Prospect Website Content
-**URL:** ${scraped.url}
-**Title:** ${scraped.title}
-**Meta Description:** ${scraped.metaDescription}
-**Key Headings:** ${scraped.headings.join(" | ")}
-**Tech Stack Detected:** ${scraped.techSignals.join(", ") || "None detected"}
-**Content:** ${scraped.bodyText.slice(0, 3000)}
+${prospectBlock}
 
 Generate the analysis JSON. Be specific to THIS prospect's actual content.`;
 
