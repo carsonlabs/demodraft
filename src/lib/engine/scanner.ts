@@ -234,7 +234,7 @@ Generate the analysis JSON. Be specific to THIS prospect's actual content.`;
     );
 
     if (message.usage) {
-      const u = message.usage as Record<string, number | undefined>;
+      const u = message.usage;
       console.log(
         `[demodraft-scan] in=${u.input_tokens} cached=${u.cache_read_input_tokens ?? 0} write=${u.cache_creation_input_tokens ?? 0} out=${u.output_tokens}`,
       );
@@ -257,7 +257,7 @@ Generate the analysis JSON. Be specific to THIS prospect's actual content.`;
  */
 const SUBJECT_TEMPLATES = [
   (name: string, company: string) => `Idea for ${name} + ${company}`,
-  (name: string, company: string) => `Quick analysis of ${name}`,
+  (name: string, _company: string) => `Quick analysis of ${name}`,
   (name: string, _company: string) => `${name} — spotted something`,
 ];
 
@@ -270,7 +270,7 @@ const SUBJECT_TEMPLATES = [
 export function composeEmail(
   result: ScanResult,
   campaign: CampaignConfig,
-  prospectEmail?: string | null
+  _prospectEmail?: string | null
 ): { subject: string; body: string } {
   const meta = result.meta as Record<string, unknown> | undefined;
   const keyInsight = (meta?.keyInsight as string) ?? "some opportunities for improvement";

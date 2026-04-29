@@ -123,19 +123,29 @@ export async function captureException(
         value: error.message,
         stacktrace: error.stack ? {
           frames: error.stack.split("\n").slice(1, 10).map(line => {
-            const match = line.match(/at\s+(.+?)\s+\((.+?):(\d+):(\d+)\)/) || 
-                         line.match(/at\s+(.+?):(\d+):(\d+)/);
-            if (match) {
+            // "at funcName (file.ts:10:20)" — match groups: fn, file, line, col
+            const named = line.match(/at\s+(.+?)\s+\((.+?):(\d+):(\d+)\)/);
+            if (named) {
               return {
-                filename: match[1] ?? "unknown",
-                function: match[0] ? "anonymous" : undefined,
-                lineno: parseInt(match[2] ?? "0", 10),
-                colno: parseInt(match[3] ?? "0", 10),
+                filename: named[2] ?? "unknown",
+                function: named[1] ?? "anonymous",
+                lineno: parseInt(named[3] ?? "0", 10),
+                colno: parseInt(named[4] ?? "0", 10),
+              };
+            }
+            // "at file.ts:10:20" — anonymous frame, match groups: file, line, col
+            const anon = line.match(/at\s+(.+?):(\d+):(\d+)/);
+            if (anon) {
+              return {
+                filename: anon[1] ?? "unknown",
+                function: "anonymous",
+                lineno: parseInt(anon[2] ?? "0", 10),
+                colno: parseInt(anon[3] ?? "0", 10),
               };
             }
             return {
               filename: "unknown",
-              function: line.trim(),
+              function: line.trim() || "anonymous",
             };
           }),
         } : undefined,
@@ -229,7 +239,7 @@ export function withErrorTracking<T extends (...args: unknown[]) => Promise<unkn
     } catch (error) {
       const err = error instanceof Error ? error : new Error(String(error));
       
-      let context: Parameters<typeof captureException>[1] = {};
+      const context: Parameters<typeof captureException>[1] = {};
       
       if (options?.captureRequestContext && args.length > 0) {
         const firstArg = args[0];

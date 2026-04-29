@@ -13,6 +13,7 @@ export function QuickScan() {
 
   useEffect(() => {
     loadCampaigns();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function loadCampaigns() {

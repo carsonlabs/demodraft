@@ -190,12 +190,12 @@ export async function GET(request: NextRequest) {
 
   // Determine overall health status
   const checks = { database, anthropic, stripe, storage };
-  const errors = Object.values(checks).filter(c => c.status === "error");
-  
+  const errorEntries = Object.entries(checks).filter(([, c]) => c?.status === "error");
+
   let status: HealthStatus["status"] = "healthy";
-  if (errors.length > 0) {
+  if (errorEntries.length > 0) {
     // Critical services: database and storage
-    const criticalErrors = errors.filter((_, key) => 
+    const criticalErrors = errorEntries.filter(([key]) =>
       ["database", "storage"].includes(key)
     );
     status = criticalErrors.length > 0 ? "unhealthy" : "degraded";

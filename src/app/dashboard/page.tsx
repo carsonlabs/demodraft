@@ -32,7 +32,9 @@ export default async function DashboardPage({
     .gte("created_at", `${today}T00:00:00Z`)
     .order("created_at", { ascending: false });
 
-  // Get recent drafts (last 7 days)
+  // Get recent drafts (last 7 days). Server component — Date.now() is fine here,
+  // but the react-hooks/purity rule doesn't distinguish server/client; suppress.
+  // eslint-disable-next-line react-hooks/purity
   const weekAgo = new Date(Date.now() - 7 * 86400000).toISOString().slice(0, 10);
   const { data: recentDrafts } = await supabase
     .from("drafts")

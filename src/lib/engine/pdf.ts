@@ -11,7 +11,6 @@ import PDFDocument from "pdfkit";
 import type {
   BrandConfig,
   ScanResult,
-  ScanCheck,
   PdfCustomPage,
   CtaPageConfig,
   PricingTier,

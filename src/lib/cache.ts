@@ -7,14 +7,6 @@
 
 import { createClient } from "@supabase/supabase-js";
 
-interface CacheEntry {
-  id: string;
-  prompt_hash: string;
-  response: unknown;
-  created_at: string;
-  expires_at: string;
-}
-
 const CACHE_TTL_HOURS = 24; // Cache entries expire after 24 hours
 
 async function hashPrompt(prompt: string): Promise<string> {

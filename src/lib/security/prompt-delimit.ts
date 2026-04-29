@@ -15,7 +15,6 @@ export function wrapUntrusted(content: string, opts: WrapOptions = {}): string {
   const maxLength = opts.maxLength ?? 8000;
 
   let s = String(content ?? '');
-  // eslint-disable-next-line no-control-regex
   s = s.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, '');
   const closer = `</${tag}>`;
   s = s.split(closer).join(`</ ${tag}>`);

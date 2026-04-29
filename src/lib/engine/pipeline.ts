@@ -160,7 +160,6 @@ export async function runBatch(
   const results: DraftResult[] = [];
   let succeeded = 0;
   let failed = 0;
-  let completed = 0;
 
   // Process in chunks of `concurrency`
   for (let i = 0; i < prospects.length; i += concurrency) {
@@ -173,7 +172,6 @@ export async function runBatch(
     );
 
     for (const settled of chunkResults) {
-      completed++;
       if (settled.status === "fulfilled") {
         results.push(settled.value);
         if (settled.value.status === "success") succeeded++;

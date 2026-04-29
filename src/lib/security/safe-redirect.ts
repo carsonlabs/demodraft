@@ -25,7 +25,6 @@ export function safeRedirectPath(
   // Backslashes: some browsers normalize to slashes — reject outright
   if (next.includes('\\')) return fallback;
   // Control characters (including NUL, CR, LF) — header injection surface
-  // eslint-disable-next-line no-control-regex
   if (/[\x00-\x1f\x7f]/.test(next)) return fallback;
   return next;
 }

@@ -13,15 +13,7 @@ export default function ProspectsPage() {
   const [uploading, setUploading] = useState(false);
   const [message, setMessage] = useState("");
 
-  useEffect(() => {
-    loadCampaigns();
-  }, []);
-
-  useEffect(() => {
-    if (selectedCampaign) loadProspects();
-  }, [selectedCampaign]);
-
-  async function loadCampaigns() {
+  const loadCampaigns = async () => {
     const { data } = await supabase
       .from("campaigns")
       .select("id, name")
@@ -30,9 +22,9 @@ export default function ProspectsPage() {
       setCampaigns(data);
       setSelectedCampaign(data[0]!.id);
     }
-  }
+  };
 
-  async function loadProspects() {
+  const loadProspects = async () => {
     const { data } = await supabase
       .from("prospects")
       .select("*")
@@ -40,7 +32,17 @@ export default function ProspectsPage() {
       .order("created_at", { ascending: false })
       .limit(100);
     setProspects(data ?? []);
-  }
+  };
+
+  useEffect(() => {
+    loadCampaigns();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    if (selectedCampaign) loadProspects();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCampaign]);
 
   async function addSingleUrl() {
     if (!singleUrl || !selectedCampaign) return;

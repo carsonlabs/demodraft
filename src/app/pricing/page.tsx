@@ -57,7 +57,7 @@ export default function PricingPage() {
 
   const handleCheckout = async (planId: string) => {
     if (planId === "free") {
-      window.location.href = "/login";
+      window.location.assign("/login");
       return;
     }
 
@@ -66,7 +66,7 @@ export default function PricingPage() {
     const { data: { user } } = await supabase.auth.getUser();
 
     if (!user) {
-      window.location.href = "/login";
+      window.location.assign("/login");
       return;
     }
 
@@ -78,7 +78,7 @@ export default function PricingPage() {
 
     const data = await res.json();
     if (data.url) {
-      window.location.href = data.url;
+      window.location.assign(data.url);
     }
     setLoading(null);
   };
