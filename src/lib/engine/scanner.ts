@@ -233,6 +233,13 @@ Generate the analysis JSON. Be specific to THIS prospect's actual content.`;
       }
     );
 
+    if (message.usage) {
+      const u = message.usage as Record<string, number | undefined>;
+      console.log(
+        `[demodraft-scan] in=${u.input_tokens} cached=${u.cache_read_input_tokens ?? 0} write=${u.cache_creation_input_tokens ?? 0} out=${u.output_tokens}`,
+      );
+    }
+
     // Parse — structured outputs guarantee valid JSON in the first text block
     const responseText =
       message.content[0]?.type === "text" ? message.content[0].text : "";

@@ -158,6 +158,13 @@ export async function POST(request: NextRequest) {
       },
     });
 
+    if (message.usage) {
+      const u = message.usage as Record<string, number | undefined>;
+      console.log(
+        `[demodraft-onboard] in=${u.input_tokens} cached=${u.cache_read_input_tokens ?? 0} write=${u.cache_creation_input_tokens ?? 0} out=${u.output_tokens}`,
+      );
+    }
+
     const responseText =
       message.content[0]?.type === "text" ? message.content[0].text : "";
     const result = JSON.parse(responseText);
