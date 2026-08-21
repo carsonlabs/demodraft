@@ -106,6 +106,7 @@ export interface CampaignConfig {
   dailyProspectCount: number;
   ctaSteps?: CtaPageConfig;
   pricing?: PricingTier[];
+  gmailDraft?: boolean;
 }
 
 // ── Prospect ────────────────────────────────────────────────────────────────

@@ -2,13 +2,17 @@
   "name": "demodraft",
   "version": "1.0.0",
   "private": true,
+  "bin": {
+    "demodraft": "./bin/demodraft.js"
+  },
   "scripts": {
     "dev": "next dev --turbopack",
     "build": "next build",
     "start": "next start",
     "lint": "eslint . --max-warnings=0",
     "lint:fix": "eslint . --fix",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:internal": "node test/internal-api.test.js"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",

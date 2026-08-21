@@ -8,6 +8,7 @@
 import { SupabaseClient } from "@supabase/supabase-js";
 import { scanProspect, composeEmail } from "./scanner";
 import { generatePdfBuffer } from "./pdf";
+import { createGmailDraft } from "@/lib/gmail/draft";
 import type { CampaignConfig, ProspectInput, DraftResult } from "./types";
 
 function slugify(target: string): string {
@@ -67,24 +68,51 @@ export async function processProspect(
 
     // 6. Store draft in database. `pdf_url` holds the storage path (not a public URL);
     // the /api/drafts/[id]/pdf route mints a short-TTL signed URL for the owner.
-    const { error: draftError } = await supabase.from("drafts").insert({
-      prospect_id: prospect.id,
-      campaign_id: campaign.id,
-      user_id: campaign.userId,
-      scan_score: scanResult.overallScore,
-      scan_grade: scanResult.grade,
-      scan_data: scanResult,
-      pdf_url: storagePath,
-      pdf_filename: pdfFilename,
-      email_to: prospect.contactEmail,
-      email_subject: email.subject,
-      email_body: email.body,
-      status: "ready",
-      completed_at: new Date().toISOString(),
-    });
+    const { data: insertedDraft, error: draftError } = await supabase
+      .from("drafts")
+      .insert({
+        prospect_id: prospect.id,
+        campaign_id: campaign.id,
+        user_id: campaign.userId,
+        scan_score: scanResult.overallScore,
+        scan_grade: scanResult.grade,
+        scan_data: scanResult,
+        pdf_url: storagePath,
+        pdf_filename: pdfFilename,
+        email_to: prospect.contactEmail,
+        email_subject: email.subject,
+        email_body: email.body,
+        status: "ready",
+        completed_at: new Date().toISOString(),
+      })
+      .select("id")
+      .single();
 
     if (draftError) {
       throw new Error(`Draft insert failed: ${draftError.message}`);
+    }
+
+    // 6b. Optionally create a Gmail draft so it lands in the inbox ready to send.
+    // Failures here are non-fatal — the DB draft is the source of truth.
+    if (campaign.gmailDraft && prospect.contactEmail && insertedDraft?.id) {
+      const gmailResult = await createGmailDraft({
+        to: prospect.contactEmail,
+        subject: email.subject,
+        bodyText: email.body,
+        attachment: {
+          filename: pdfFilename,
+          contentType: "application/pdf",
+          data: pdfBuffer,
+        },
+      });
+      if (gmailResult.ok && gmailResult.draftId) {
+        await supabase
+          .from("drafts")
+          .update({ gmail_draft_id: gmailResult.draftId })
+          .eq("id", insertedDraft.id);
+      } else {
+        console.warn(`  Gmail draft skipped: ${gmailResult.reason}`);
+      }
     }
 
     // 7. Update prospect status
@@ -212,5 +240,6 @@ export function campaignRowToConfig(row: Record<string, unknown>): CampaignConfi
     emailTemplate: row.email_template as string | undefined,
     pdfTemplate: (row.pdf_template as "standard" | "minimal" | "bold") ?? "standard",
     dailyProspectCount: (row.daily_prospect_count as number) ?? 10,
+    gmailDraft: Boolean(row.gmail_draft),
   };
 }
